@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -24,7 +25,7 @@ import (
 )
 
 func main() {
-	bot, err := linebot.New(
+	app, err := NewKitchenSink(
 		os.Getenv("CHANNEL_SECRET"),
 		os.Getenv("CHANNEL_TOKEN"),
 	)
@@ -32,38 +33,129 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Setup HTTP Server for receiving requests from LINE platform
-	http.HandleFunc("/callback", func(w http.ResponseWriter, req *http.Request) {
-		events, err := bot.ParseRequest(req)
-		if err != nil {
-			if err == linebot.ErrInvalidSignature {
-				w.WriteHeader(400)
-			} else {
-				w.WriteHeader(500)
-			}
-			return
-		}
-		for _, event := range events {
-			if event.Type == linebot.EventTypeMessage {
-				log.Print(event)
-				switch message := event.Message.(type) {
-				case *linebot.TextMessage:
-					if _, err = bot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(message.Text)).Do(); err != nil {
-						log.Print(err)
-					}
-				case *linebot.StickerMessage:
-					replyMessage := fmt.Sprintf(
-						"sticker id is %s, stickerResourceType is %s", message.StickerID, message.StickerResourceType)
-					if _, err = bot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(replyMessage)).Do(); err != nil {
-						log.Print(err)
-					}
-				}
-			}
-		}
-	})
-	// This is just sample code.
-	// For actual use, you must support HTTPS by using `ListenAndServeTLS`, a reverse proxy or something else.
+	http.HandleFunc("/callback", app.Callback)
+	// This is just a sample code.
+	// For actually use, you must support HTTPS by using `ListenAndServeTLS`, reverse proxy or etc.
 	if err := http.ListenAndServe(":"+os.Getenv("PORT"), nil); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// KitchenSink app
+type KitchenSink struct {
+	bot *linebot.Client
+}
+
+// NewKitchenSink function
+func NewKitchenSink(channelSecret, channelToken string) (*KitchenSink, error) {
+	bot, err := linebot.New(
+		channelSecret,
+		channelToken,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &KitchenSink{
+		bot: bot,
+	}, nil
+}
+
+// Callback function for http server
+func (app *KitchenSink) Callback(w http.ResponseWriter, r *http.Request) {
+	events, err := app.bot.ParseRequest(r)
+	if err != nil {
+		if err == linebot.ErrInvalidSignature {
+			w.WriteHeader(400)
+		} else {
+			w.WriteHeader(500)
+		}
+		return
+	}
+	for _, event := range events {
+		b, err := json.Marshal(event)
+		if err != nil {
+			log.Println("error:", err)
+		}
+		log.Printf("Got event %v", string(b))
+		switch event.Type {
+		case linebot.EventTypeMessage:
+			switch message := event.Message.(type) {
+			case *linebot.TextMessage:
+				if err := app.handleText(message, event.ReplyToken, event.Source); err != nil {
+					log.Print(err)
+				}
+			default:
+				log.Printf("Unknown message: %v", message)
+			}
+		case linebot.EventTypeFollow:
+			if err := app.replyText(event.ReplyToken, "Got followed event"); err != nil {
+				log.Print(err)
+			}
+		case linebot.EventTypeUnfollow:
+			log.Printf("Unfollowed this bot: %v", event)
+		case linebot.EventTypeJoin:
+			if err := app.replyText(event.ReplyToken, "Joined "+string(event.Source.Type)); err != nil {
+				log.Print(err)
+			}
+		case linebot.EventTypeLeave:
+			log.Printf("Left: %v", event)
+		case linebot.EventTypePostback:
+			data := event.Postback.Data
+			if data == "DATE" || data == "TIME" || data == "DATETIME" {
+				data += fmt.Sprintf("(%v)", *event.Postback.Params)
+			}
+			if err := app.replyText(event.ReplyToken, "Got postback: "+data); err != nil {
+				log.Print(err)
+			}
+		case linebot.EventTypeBeacon:
+			if err := app.replyText(event.ReplyToken, "Got beacon: "+event.Beacon.Hwid); err != nil {
+				log.Print(err)
+			}
+		default:
+			log.Printf("Unknown event: %v", event)
+		}
+	}
+}
+
+func (app *KitchenSink) handleText(message *linebot.TextMessage, replyToken string, source *linebot.EventSource) error {
+	switch message.Text {
+	case "bye":
+		switch source.Type {
+		case linebot.EventSourceTypeUser:
+			return app.replyText(replyToken, "Bot can't leave from 1:1 chat")
+		case linebot.EventSourceTypeGroup:
+			if err := app.replyText(replyToken, "Leaving group"); err != nil {
+				return err
+			}
+			if _, err := app.bot.LeaveGroup(source.GroupID).Do(); err != nil {
+				return app.replyText(replyToken, err.Error())
+			}
+		case linebot.EventSourceTypeRoom:
+			if err := app.replyText(replyToken, "Leaving room"); err != nil {
+				return err
+			}
+			if _, err := app.bot.LeaveRoom(source.RoomID).Do(); err != nil {
+				return app.replyText(replyToken, err.Error())
+			}
+		}
+	default:
+		log.Printf("Echo message to %s: %s", replyToken, message.Text)
+		if _, err := app.bot.ReplyMessage(
+			replyToken,
+			linebot.NewTextMessage(message.Text),
+		).Do(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (app *KitchenSink) replyText(replyToken, text string) error {
+	if _, err := app.bot.ReplyMessage(
+		replyToken,
+		linebot.NewTextMessage(text),
+	).Do(); err != nil {
+		return err
+	}
+	return nil
 }
