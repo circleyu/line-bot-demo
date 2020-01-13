@@ -28,12 +28,15 @@ func main() {
 	app, err := NewKitchenSink(
 		os.Getenv("CHANNEL_SECRET"),
 		os.Getenv("CHANNEL_TOKEN"),
+		os.Getenv("GROUP_ID"),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	http.HandleFunc("/callback", app.Callback)
+	http.HandleFunc("/push", app.Push)
+
 	// This is just a sample code.
 	// For actually use, you must support HTTPS by using `ListenAndServeTLS`, reverse proxy or etc.
 	if err := http.ListenAndServe(":"+os.Getenv("PORT"), nil); err != nil {
@@ -43,11 +46,12 @@ func main() {
 
 // KitchenSink app
 type KitchenSink struct {
-	bot *linebot.Client
+	bot     *linebot.Client
+	groupID string
 }
 
 // NewKitchenSink function
-func NewKitchenSink(channelSecret, channelToken string) (*KitchenSink, error) {
+func NewKitchenSink(channelSecret, channelToken, groupID string) (*KitchenSink, error) {
 	bot, err := linebot.New(
 		channelSecret,
 		channelToken,
@@ -56,8 +60,35 @@ func NewKitchenSink(channelSecret, channelToken string) (*KitchenSink, error) {
 		return nil, err
 	}
 	return &KitchenSink{
-		bot: bot,
+		bot:     bot,
+		groupID: groupID,
 	}, nil
+}
+
+// Message Msg
+type Message struct {
+	Text string `json:"text"`
+}
+
+// Push function for http server
+func (app *KitchenSink) Push(w http.ResponseWriter, r *http.Request) {
+	dec := json.NewDecoder(r.Body)
+	defer r.Body.Close()
+
+	var message Message
+	if err := dec.Decode(&message); err != nil {
+		log.Printf("error decoding message: %v", err)
+		w.WriteHeader(400)
+		return
+	}
+
+	log.Printf("Push message to %s: %s", app.groupID, message.Text)
+	if _, err := app.bot.PushMessage(
+		app.groupID,
+		linebot.NewTextMessage(message.Text),
+	).Do(); err != nil {
+		log.Print(err)
+	}
 }
 
 // Callback function for http server
