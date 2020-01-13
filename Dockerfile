@@ -10,5 +10,6 @@ FROM scratch
 WORKDIR /app
 COPY --from=buildStage /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=buildStage /line-bot-demo/line-bot-demo .
+COPY --from=buildStage /line-bot-demo/static .
 EXPOSE 9203
 ENTRYPOINT ["/app/line-bot-demo"]
