@@ -91,9 +91,7 @@ func (app *KitchenSink) SnsPush(w http.ResponseWriter, r *http.Request) {
 	data := f.(map[string]interface{})
 	log.Println(data["Type"].(string))
 
-	if data["Type"].(string) == "" {
-		app.handleAction(w, r)
-	} else if data["Type"].(string) == subConfrmType {
+	if data["Type"].(string) == subConfrmType {
 		subcribeURL := data["SubscribeURL"].(string)
 		go confirmSubscription(subcribeURL)
 	} else if data["Type"].(string) == notificationType {
@@ -226,23 +224,6 @@ func (app *KitchenSink) replyText(replyToken, text string) error {
 		return err
 	}
 	return nil
-}
-
-func (app *KitchenSink) handleAction(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
-	case "/confirm":
-		log.Printf("TestPush message to %s: %s", app.groupID, "Subscription Confirmed.")
-		if _, err := app.bot.PushMessage(
-			app.groupID,
-			linebot.NewTextMessage("Subscription Confirmed."),
-		).Do(); err != nil {
-			log.Print(err)
-		}
-		return
-	default:
-		http.NotFound(w, r)
-		return
-	}
 }
 
 func confirmSubscription(subcribeURL string) {
