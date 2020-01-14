@@ -17,12 +17,16 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 
 	"github.com/line/line-bot-sdk-go/linebot"
 )
+
+const subConfrmType = "SubscriptionConfirmation"
+const notificationType = "Notification"
 
 func main() {
 	app, err := NewKitchenSink(
@@ -35,7 +39,8 @@ func main() {
 	}
 
 	http.HandleFunc("/callback", app.Callback)
-	http.HandleFunc("/push", app.Push)
+	http.HandleFunc("/testpush", app.TestPush)
+	http.HandleFunc("/snspush", app.SnsPush)
 
 	// This is just a sample code.
 	// For actually use, you must support HTTPS by using `ListenAndServeTLS`, reverse proxy or etc.
@@ -70,8 +75,40 @@ type Message struct {
 	Text string `json:"text"`
 }
 
-// Push function for http server
-func (app *KitchenSink) Push(w http.ResponseWriter, r *http.Request) {
+// SnsPush function for http server
+func (app *KitchenSink) SnsPush(w http.ResponseWriter, r *http.Request) {
+	var f interface{}
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("Unable to Parse Body")
+	}
+	log.Printf(string(body))
+	err = json.Unmarshal(body, &f)
+	if err != nil {
+		log.Printf("Unable to Unmarshal request")
+	}
+
+	data := f.(map[string]interface{})
+	log.Println(data["Type"].(string))
+
+	if data["Type"].(string) == "" {
+		app.handleAction(w, r)
+	} else if data["Type"].(string) == subConfrmType {
+		subcribeURL := data["SubscribeURL"].(string)
+		go confirmSubscription(subcribeURL)
+	} else if data["Type"].(string) == notificationType {
+		log.Printf("Push message to %s: %s", app.groupID, data["Message"].(string))
+		if _, err := app.bot.PushMessage(
+			app.groupID,
+			linebot.NewTextMessage(data["Message"].(string)),
+		).Do(); err != nil {
+			log.Print(err)
+		}
+	}
+}
+
+// TestPush function for http server
+func (app *KitchenSink) TestPush(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(r.Body)
 	defer r.Body.Close()
 
@@ -82,7 +119,7 @@ func (app *KitchenSink) Push(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Push message to %s: %s", app.groupID, message.Text)
+	log.Printf("TestPush message to %s: %s", app.groupID, message.Text)
 	if _, err := app.bot.PushMessage(
 		app.groupID,
 		linebot.NewTextMessage(message.Text),
@@ -189,4 +226,30 @@ func (app *KitchenSink) replyText(replyToken, text string) error {
 		return err
 	}
 	return nil
+}
+
+func (app *KitchenSink) handleAction(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/confirm":
+		log.Printf("TestPush message to %s: %s", app.groupID, "Subscription Confirmed.")
+		if _, err := app.bot.PushMessage(
+			app.groupID,
+			linebot.NewTextMessage("Subscription Confirmed."),
+		).Do(); err != nil {
+			log.Print(err)
+		}
+		return
+	default:
+		http.NotFound(w, r)
+		return
+	}
+}
+
+func confirmSubscription(subcribeURL string) {
+	response, err := http.Get(subcribeURL)
+	if err != nil {
+		fmt.Printf("Unbale to confirm subscriptions")
+	} else {
+		fmt.Printf("Subscription Confirmed sucessfully. %d", response.StatusCode)
+	}
 }
