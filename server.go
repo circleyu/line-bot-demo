@@ -41,6 +41,7 @@ func main() {
 	http.HandleFunc("/callback", app.Callback)
 	http.HandleFunc("/testpush", app.TestPush)
 	http.HandleFunc("/snspush", app.SnsPush)
+	http.HandleFunc("/ticketpush", app.TicketPush)
 
 	// This is just a sample code.
 	// For actually use, you must support HTTPS by using `ListenAndServeTLS`, reverse proxy or etc.
@@ -113,22 +114,60 @@ func (app *KitchenSink) SnsPush(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// TestPush function for http server
-func (app *KitchenSink) TestPush(w http.ResponseWriter, r *http.Request) {
-	dec := json.NewDecoder(r.Body)
-	defer r.Body.Close()
+// TicketPush function for http server
+func (app *KitchenSink) TicketPush(w http.ResponseWriter, r *http.Request) {
+	var f interface{}
+	body, err := ioutil.ReadAll(r.Body)
 
-	var message Message
-	if err := dec.Decode(&message); err != nil {
-		log.Printf("error decoding message: %v", err)
-		w.WriteHeader(400)
-		return
+	if err != nil {
+		log.Printf("Unable to Parse Body")
 	}
 
-	log.Printf("TestPush message to %s: %s", app.groupID, message.Text)
+	log.Printf(string(body))
+
+	err = json.Unmarshal(body, &f)
+	if err != nil {
+		log.Printf("Unable to Unmarshal request")
+	}
+
+	data := f.(map[string]interface{})
+
+	log.Printf("TicketPush message to %s: %s", app.groupID, data["title"].(string))
+	template := linebot.NewButtonsTemplate(
+		"https://furlongschoolbase.co.uk/wp-content/uploads/2018/11/Freshdesk-Icon.png",
+		"您有一張新工單", data["title"].(string),
+		linebot.NewURIAction("前往", data["url"].(string)),
+	)
 	if _, err := app.bot.PushMessage(
 		app.groupID,
-		linebot.NewTextMessage(message.Text),
+		linebot.NewTemplateMessage("您有張新工單", template),
+	).Do(); err != nil {
+		log.Print(err)
+	}
+}
+
+// TestPush function for http server
+func (app *KitchenSink) TestPush(w http.ResponseWriter, r *http.Request) {
+	var f interface{}
+	body, err := ioutil.ReadAll(r.Body)
+
+	if err != nil {
+		log.Printf("Unable to Parse Body")
+	}
+
+	log.Printf(string(body))
+
+	err = json.Unmarshal(body, &f)
+	if err != nil {
+		log.Printf("Unable to Unmarshal request")
+	}
+
+	data := f.(map[string]interface{})
+
+	log.Printf("TestPush message to %s: %s", app.groupID, data["text"].(string))
+	if _, err := app.bot.PushMessage(
+		app.groupID,
+		linebot.NewTextMessage(data["text"].(string)),
 	).Do(); err != nil {
 		log.Print(err)
 	}
