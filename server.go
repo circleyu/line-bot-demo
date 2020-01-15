@@ -95,12 +95,20 @@ func (app *KitchenSink) SnsPush(w http.ResponseWriter, r *http.Request) {
 		subcribeURL := data["SubscribeURL"].(string)
 		go confirmSubscription(subcribeURL)
 	} else if data["Type"].(string) == notificationType {
-		log.Printf("Push message to %s: %s", app.groupID, data["Message"].(string))
-		if _, err := app.bot.PushMessage(
-			app.groupID,
-			linebot.NewTextMessage(data["Message"].(string)),
-		).Do(); err != nil {
-			log.Print(err)
+		var m interface{}
+		err = json.Unmarshal([]byte(data["Message"].(string)), &m)
+		if err != nil {
+			log.Printf("Unable to Unmarshal Message")
+		} else {
+			message := m.(map[string]interface{})
+			log.Printf("Push message to %s: %s", app.groupID, message["AlarmName"].(string))
+
+			if _, err := app.bot.PushMessage(
+				app.groupID,
+				linebot.NewTextMessage(message["AlarmName"].(string)),
+			).Do(); err != nil {
+				log.Print(err)
+			}
 		}
 	}
 }
