@@ -165,18 +165,6 @@ func (app *KitchenSink) Callback(w http.ResponseWriter, r *http.Request) {
 			}
 		case linebot.EventTypeLeave:
 			log.Printf("Left: %v", event)
-		case linebot.EventTypePostback:
-			data := event.Postback.Data
-			if data == "DATE" || data == "TIME" || data == "DATETIME" {
-				data += fmt.Sprintf("(%v)", *event.Postback.Params)
-			}
-			if err := app.replyText(event.ReplyToken, "Got postback: "+data); err != nil {
-				log.Print(err)
-			}
-		case linebot.EventTypeBeacon:
-			if err := app.replyText(event.ReplyToken, "Got beacon: "+event.Beacon.Hwid); err != nil {
-				log.Print(err)
-			}
 		default:
 			log.Printf("Unknown event: %v", event)
 		}
@@ -185,6 +173,15 @@ func (app *KitchenSink) Callback(w http.ResponseWriter, r *http.Request) {
 
 func (app *KitchenSink) handleText(message *linebot.TextMessage, replyToken string, source *linebot.EventSource) error {
 	switch message.Text {
+	case "get id":
+		switch source.Type {
+		case linebot.EventSourceTypeUser:
+			return app.replyText(replyToken, source.UserID)
+		case linebot.EventSourceTypeGroup:
+			return app.replyText(replyToken, source.GroupID)
+		case linebot.EventSourceTypeRoom:
+			return app.replyText(replyToken, source.RoomID)
+		}
 	case "bye":
 		switch source.Type {
 		case linebot.EventSourceTypeUser:
