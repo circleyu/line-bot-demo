@@ -21,6 +21,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/line/line-bot-sdk-go/linebot"
 )
@@ -32,6 +33,7 @@ func main() {
 	app, err := NewKitchenSink(
 		os.Getenv("CHANNEL_SECRET"),
 		os.Getenv("CHANNEL_TOKEN"),
+		os.Getenv("PREFIX"),
 		os.Getenv("GROUP_ID"),
 	)
 	if err != nil {
@@ -54,10 +56,11 @@ func main() {
 type KitchenSink struct {
 	bot     *linebot.Client
 	groupID string
+	prefix  string
 }
 
 // NewKitchenSink function
-func NewKitchenSink(channelSecret, channelToken, groupID string) (*KitchenSink, error) {
+func NewKitchenSink(channelSecret, channelToken, prefix, groupID string) (*KitchenSink, error) {
 	bot, err := linebot.New(
 		channelSecret,
 		channelToken,
@@ -68,12 +71,8 @@ func NewKitchenSink(channelSecret, channelToken, groupID string) (*KitchenSink, 
 	return &KitchenSink{
 		bot:     bot,
 		groupID: groupID,
+		prefix:  prefix,
 	}, nil
-}
-
-// Message Msg
-type Message struct {
-	Text string `json:"text"`
 }
 
 // SnsPush function for http server
@@ -219,15 +218,29 @@ func (app *KitchenSink) Callback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *KitchenSink) handleText(message *linebot.TextMessage, replyToken string, source *linebot.EventSource) error {
-	switch message.Text {
-	case "get id":
-		switch source.Type {
-		case linebot.EventSourceTypeUser:
-			return app.replyText(replyToken, source.UserID)
-		case linebot.EventSourceTypeGroup:
-			return app.replyText(replyToken, source.GroupID)
-		case linebot.EventSourceTypeRoom:
-			return app.replyText(replyToken, source.RoomID)
+	cmd := strings.Split(message.Text, " ")
+	if len(cmd) == 0 {
+		return app.replyText(replyToken, fmt.Sprintf("Unknown cmd: %v", message.Text))
+	} else if strings.Compare(cmd[0], app.prefix) != 0 {
+		return app.replyText(replyToken, fmt.Sprintf("Unknown cmd: %v", message.Text))
+	}
+	switch cmd[1] {
+	case "get":
+		if len(cmd) != 3 {
+			return app.replyText(replyToken, fmt.Sprintf("Unknown cmd: %v", message.Text))
+		}
+		switch cmd[2] {
+		case "id":
+			switch source.Type {
+			case linebot.EventSourceTypeUser:
+				return app.replyText(replyToken, source.UserID)
+			case linebot.EventSourceTypeGroup:
+				return app.replyText(replyToken, source.GroupID)
+			case linebot.EventSourceTypeRoom:
+				return app.replyText(replyToken, source.RoomID)
+			}
+		default:
+			return app.replyText(replyToken, fmt.Sprintf("Unknown cmd: %v", message.Text))
 		}
 	case "bye":
 		switch source.Type {
@@ -265,8 +278,8 @@ func (app *KitchenSink) replyText(replyToken, text string) error {
 func confirmSubscription(subcribeURL string) {
 	response, err := http.Get(subcribeURL)
 	if err != nil {
-		fmt.Printf("Unbale to confirm subscriptions")
+		log.Printf("Unbale to confirm subscriptions")
 	} else {
-		fmt.Printf("Subscription Confirmed sucessfully. %d", response.StatusCode)
+		log.Printf("Subscription Confirmed sucessfully. %d", response.StatusCode)
 	}
 }
